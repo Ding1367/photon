@@ -1,0 +1,7 @@
+* Fix TUI
+    - Drawing the background does not work and acts weird with changing foreground (tested with an extension.)
+* Implement actual editor logic because OBVIOUSLY an **edit**or needs to **EDIT.**
+* Expose public functions to the API.
+* At some point add Windows support.
+* Support all key and mouse inputs.
+* Separate editor logic from `src/main.c` and modularize `src/ui.c` into multiple files like `src/ui_color.c` and `src/ui_buf.c`.
