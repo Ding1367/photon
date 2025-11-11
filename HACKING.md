@@ -1,8 +1,9 @@
 # Hacking `photon`
-1.  Create the directory `~/.config/photon/extensions`
-2.  Write an extension in C or a language that can output C symbols. More info in [The ABI](#The ABI).
+1.  Create the extensions directory, at `~/.config/photon/extensions`
+2.  Write an extension in C or a language that can output C symbols. More info in [The ABI](#the-abi).
+3.  Compile your extension as a dynamic library and move to the extensions directory. (You can disable it with -- prefix).
 
-# The ABI
+## The ABI
 All ABI functions take in a `const photon_api_t *` parameter. To get access to types include `src/photon.h` in your code.
 
 Here are all the ABI functions:
