@@ -22,6 +22,7 @@ static const char *errorMessages[] = {
 
 static void photon_draw_buf(const photon_api_t *api, photon_buffer_t *buf){
     photon_editor_t *editor = api->editor;
+    editor->ui_hints = editor->theme.normal;
     photon_draw_box(editor, buf->y, buf->x, buf->rows, buf->cols);
     for (int i = 0; i < buf->num_line; i++){
         photon_draw_str(editor, i, 0, buf->lines[i].line);

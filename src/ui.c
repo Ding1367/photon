@@ -9,6 +9,7 @@
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <math.h>
+#include <ctype.h>
 
 typedef struct ansi_seq {
     unsigned int P[32];
@@ -161,6 +162,10 @@ typedef struct {
     float h, s, v;
 } hsv_t;
 
+typedef struct {
+    uint8_t r, g, b;
+} rgb_t;
+
 static int has_true_color;
 static int has_color_;
 static int is_4bit_color;
@@ -216,6 +221,7 @@ static float _hsv_cmp(const hsv_t *c1, const hsv_t *c2) {
 }
 
 static hsv_t defined_range[240];
+static rgb_t defined_range_rgb[240];
 
 #define hsv(x,y,z) (hsv_t){ (float)(x), (float)(y), (float)z }
 
@@ -241,6 +247,20 @@ static void _ui_set_color(ansi_seq_t *seq, int color, int bg){
     }
     if (has_true_color){
         if (value == color) return;
+        rgb_t val;
+        val.r = r;
+        val.g = g;
+        val.b = b;
+        // check if it's in the defined range, and if so just use the index
+        for (int i = 0; i < 240; i++){
+            if (memcmp(&val, &defined_range_rgb[i], sizeof(rgb_t)) == 0){
+                seq->P[seq->num_params++] = 38 + bg * 10;
+                seq->P[seq->num_params++] = 5;
+                seq->P[seq->num_params++] = i + 16;
+                *p = color;
+                return;
+            }
+        }
         seq->P[seq->num_params++] = 38 + bg * 10;
         seq->P[seq->num_params++] = 2;
         seq->P[seq->num_params++] = r;
@@ -363,12 +383,22 @@ int photon_ui_init(photon_editor_t *editor){
         r = i / 36 * 51;
         g = (i / 6) % 36 * 51;
         b = i % 6 * 51;
+        defined_range_rgb[i] = (rgb_t){
+            .r = r,
+            .g = g,
+            .b = b
+        };
         _to_hsv(r, g, b, &defined_range[i]);
     }
     for (int i = 0; i < 24; i++){
         uint8_t r, g, b;
         r = g = b = 8 + 10 * i;
-        _to_hsv(r, g, b, &defined_range[i + 232]);
+        defined_range_rgb[i + 216] = (rgb_t){
+            .r = r,
+            .g = g,
+            .b = b
+        };
+        _to_hsv(r, g, b, &defined_range[i + 216]);
     }
 
     // approx.
@@ -490,7 +520,7 @@ void photon_draw_box(photon_editor_t *editor, int y, int x, int rows, int cols){
             req.fg = back[p].fg;
             req.bg = editor->ui_hints.bg;
             req.style = back[p].style;
-            req.ch = back[p].ch;
+            req.ch = back[p].ch ? back[p].ch : ' ';
             req.x = x + c;
             req.y = y + r;
             photon_request(editor, &req);
@@ -615,22 +645,17 @@ void photon_ui_refresh(void){
             }
             _ui_move_cursor(y, x);
             REC_REFRESH("printing '%c'\n", log->ch);
-            int p = 1;
-            if (log->ch){
+            if (log->ch && !isspace(log->ch)){
                 _ui_buf_putch(log->ch);
-            } else if (cur->ch || mSeq.num_params > 0) {
+            }/* else if (cur->ch || mSeq.num_params > 0) {
                 _ui_buf_putch(' ');
-            } else p = 0;
-            if (p){
-                if (++state.x == cols){
-                    state.x = 0;
-                    state.y++;
-                }
-                n = state.x;
+            }*/ else _ui_buf_putch(' ');
+            if (state.x + 1 != cols){
+                state.x++;
             }
+
             *cur = *log;
         }
-        _ui_move_cursor(y, n);
         ansi_seq_t clearLine = {0};
         clearLine.ch = 'K';
         _ui_buf_put(&clearLine);
