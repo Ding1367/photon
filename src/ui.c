@@ -59,6 +59,8 @@ static struct termios old;
 
 #define INITIAL_CAPACITY 256
 
+static int c_y, c_x;
+
 static int _ui_put_shorter(const ansi_seq_t *seq, ...){
     va_list va;
     va_start(va, seq);
@@ -475,13 +477,20 @@ static void photon_request(photon_editor_t *editor, photon_draw_req_t *req){
     back[req->y * cols + req->x] = cell;
 }
 
-void photon_draw_str(photon_editor_t *editor, int y, int x, const char *str){
-    photon_draw_nstr(editor, y, x, str, strlen(str));
+void photon_move_ui_cursor(int y, int x){
+    c_y = y;
+    c_x = x;
+    REC_CALLS("cursor moved to %d, %d\n", y, x);
+}
+
+void photon_draw_str(photon_editor_t *editor, const char *str){
+    photon_draw_nstr(editor, str, strlen(str));
 }
 
 #define TRUNC_LEN 32
 
-void photon_draw_nstr(photon_editor_t *editor, int y, int x, const char *str, size_t sz){
+void photon_draw_nstr(photon_editor_t *editor, const char *str, size_t sz){
+#ifdef UI_DEBUG_CALLS
     photon_draw_req_t req = {0};
     char trunc[TRUNC_LEN + 10] = {0};
     if (sz > TRUNC_LEN){
@@ -489,40 +498,41 @@ void photon_draw_nstr(photon_editor_t *editor, int y, int x, const char *str, si
     } else {
         memcpy(trunc, str, sz > TRUNC_LEN ? TRUNC_LEN : sz);
     }
-    REC_CALLS("attempting to draw string \"%.*s\" at %d, %d, size of %zu bytes with color #%06x\n", sz > TRUNC_LEN ? TRUNC_LEN : (int)sz, trunc, y, x, sz, editor->ui_hints.fg);
+    REC_CALLS("attempting to draw string \"%.*s\" size of %zu bytes with color #%06x\n", sz > TRUNC_LEN ? TRUNC_LEN : (int)sz, trunc, sz, editor->ui_hints.fg);
+#endif
     while (sz){
-        int p = y * cols + x;
+        int p = c_y * cols + c_x;
         req.style = editor->ui_hints.style;
         req.fg = editor->ui_hints.fg;
         req.bg = back[p].bg;
         req.ch = *str++;
-        req.x = x;
-        req.y = y;
+        req.x = c_x;
+        req.y = c_y;
         photon_request(editor, &req);
-        if (++x == cols){
-            x = 0;
-            y++;
+        if (++c_x == cols){
+            c_x = 0;
+            c_y++;
         }
         sz--;
     }
     // do the end of string as well
-    int p = y * cols + x;
+    int p = c_y * cols + c_x;
     req.ch = 0;
     photon_request(editor, &req);
 }
 
-void photon_draw_box(photon_editor_t *editor, int y, int x, int rows, int cols){
+void photon_draw_box(photon_editor_t *editor, int rows, int cols){
     photon_draw_req_t req = {0};
-    REC_CALLS("attempting to draw box at %d, %d, size of %dx%d, with color #%06x\n", y, x, cols, rows, editor->ui_hints.bg);
+    REC_CALLS("attempting to draw box size of %dx%d, with color #%06x\n", cols, rows, editor->ui_hints.bg);
     for (int r = 0; r < rows; r++)
         for (int c = 0; c < cols; c++){
-            int p = (y + r) * cols + (x + c);
+            int p = (c_y + r) * cols + (c_x + c);
             req.fg = back[p].fg;
             req.bg = editor->ui_hints.bg;
             req.style = back[p].style;
             req.ch = back[p].ch ? back[p].ch : ' ';
-            req.x = x + c;
-            req.y = y + r;
+            req.x = c_x + c;
+            req.y = c_y + r;
             photon_request(editor, &req);
         }
 }
@@ -625,12 +635,14 @@ static void _ui_move_cursor(unsigned int y, unsigned int x){
 void photon_ui_refresh(void){
     for (int y = 0; y < rows; y++){
         int n = 0;
+        int can_clear = 0;
         for (int x = 0; x < cols; x++){
             int i = y * cols + x;
             ui_cell_t *log, *cur;
             cur = &front[i];
             log = &back [i];
             if (memcmp(cur, log, sizeof(*cur)) == 0) continue;
+            else can_clear = 1;
             ansi_seq_t mSeq = {0};
             mSeq.ch = 'm';
             int oldFg = state.fg;
@@ -647,6 +659,7 @@ void photon_ui_refresh(void){
             REC_REFRESH("printing '%c'\n", log->ch);
             if (log->ch && !isspace(log->ch)){
                 _ui_buf_putch(log->ch);
+                n = state.x + 1;
             }/* else if (cur->ch || mSeq.num_params > 0) {
                 _ui_buf_putch(' ');
             }*/ else _ui_buf_putch(' ');
@@ -656,10 +669,13 @@ void photon_ui_refresh(void){
 
             *cur = *log;
         }
+        if (!can_clear) continue;
+        _ui_move_cursor(state.y, n);
         ansi_seq_t clearLine = {0};
         clearLine.ch = 'K';
         _ui_buf_put(&clearLine);
     }
+    _ui_move_cursor(c_y, c_x);
     _ui_buf_flush();
     frame_number++;
     REC_BROADCAST("\nFrame #%d\n", frame_number);

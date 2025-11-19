@@ -6,9 +6,10 @@ typedef struct photon_editor photon_editor_t;
 
 int photon_ui_init(photon_editor_t *editor);
 
-void photon_draw_str(photon_editor_t *editor, int y, int x, const char *str);
-void photon_draw_nstr(photon_editor_t *editor, int y, int x, const char *str, size_t sz);
-void photon_draw_box(photon_editor_t *editor, int y, int x, int rows, int cols);
+void photon_move_ui_cursor(int y, int x);
+void photon_draw_str(photon_editor_t *editor, const char *str);
+void photon_draw_nstr(photon_editor_t *editor, const char *str, size_t sz);
+void photon_draw_box(photon_editor_t *editor, int rows, int cols);
 void photon_tint_line(photon_editor_t *editor, int y, int x, int n);
 void photon_ui_refresh(void);
 void photon_ui_clear(void);

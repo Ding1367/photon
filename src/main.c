@@ -12,6 +12,29 @@
 #include "input.h"
 #include "ui.h"
 
+#define GROUP_SIZE 16
+
+typedef struct alloc_group {
+    void *ptrs[GROUP_SIZE];
+    unsigned char n;
+    unsigned char fail;
+} alloc_group_t;
+
+void *group_alloc(alloc_group_t *group, size_t n, int zero){
+    if (group->n >= GROUP_SIZE) return NULL;
+    void *p = zero ? calloc(n, 1) : malloc(n);
+    if (p != NULL)
+        group->ptrs[group->n++] = p;
+    else
+        group->fail = 1;
+    return p;
+}
+
+void group_free(alloc_group_t *group){
+    for (int i = 0; i < group->n; i++)
+        free(group->ptrs);
+}
+
 static const char *errorMessages[] = {
     NULL,
     "Invalid parameters",
@@ -23,9 +46,11 @@ static const char *errorMessages[] = {
 static void photon_draw_buf(const photon_api_t *api, photon_buffer_t *buf){
     photon_editor_t *editor = api->editor;
     editor->ui_hints = editor->theme.normal;
-    photon_draw_box(editor, buf->y, buf->x, buf->rows, buf->cols);
+    photon_move_ui_cursor(buf->y, buf->x);
+    photon_draw_box(editor, buf->rows, buf->cols);
     for (int i = 0; i < buf->num_line; i++){
-        photon_draw_str(editor, i, 0, buf->lines[i].line);
+        photon_move_ui_cursor(i, 0);
+        photon_draw_str(editor, buf->lines[i].line);
     }
 }
 
@@ -55,27 +80,39 @@ photon_buffer_t *photon_create_buffer(photon_editor_t *editor, const photon_buf_
     if (type != BUF_FILE && type != BUF_SCRATCH){
         err_and_ret(editor, PHOTON_BAD_PARAM, NULL);
     }
-    photon_buffer_t *buf = malloc(sizeof(photon_buffer_t));
-    char *name_copy = NULL;
-    if (name != NULL){
-        name_copy = strdup(name);
+
+    alloc_group_t ag = {0};
+
+    photon_buffer_t *buf = group_alloc(&ag, sizeof(photon_buffer_t), 0);
+    photon_line_t *lines = group_alloc(&ag, 8 * sizeof(photon_line_t), 1);
+    char *emptyLine = group_alloc(&ag, 16, 0);
+    char *nameCopy = NULL;
+    size_t nameLen = 0;
+    if (name){
+        nameLen = strlen(name);
+        nameCopy = group_alloc(&ag, nameLen + 1, 0);
     }
-    if (buf == NULL || (!name_copy && name)){
-        free(name_copy);
-        free(buf);
+    if (ag.fail){
+        group_free(&ag);
         err_and_ret(editor, PHOTON_NO_MEM, NULL);
     }
+    if (nameLen)
+        memcpy(nameCopy, name, nameLen + 1);
+    emptyLine[0] = 0;
+    
     buf->x = options->x;
     buf->y = options->y;
     buf->rows = options->rows;
     buf->cols = options->cols;
     buf->next = editor->first_buf;
     buf->prev = NULL;
-    buf->num_line = 0;
-    buf->cap_line = 0;
-    buf->lines = NULL;
+    buf->num_line = 1;
+    buf->cap_line = 8;
+    buf->lines = lines;
+    lines[0].line = emptyLine;
+    lines[0].capacity = 16;
     buf->type = type;
-    buf->name = name_copy;
+    buf->name = nameCopy;
     buf->draw = photon_draw_buf;
     buf->userdata = NULL;
     editor->first_buf = buf;
@@ -247,10 +284,6 @@ int main(void){
         return 1;
     }
     buf->num_line = 1;
-    buf->lines = malloc(sizeof(photon_line_t));
-    buf->lines[0].line = strdup("int main my_type_t float cha unsigned char");
-    buf->lines[0].length = strlen(buf->lines[0].line);
-    buf->lines[0].capacity = strlen(buf->lines[0].line) + 1;
 
     editor.api.ui.width = photon_ui_width();
     editor.api.ui.height = photon_ui_height();
@@ -260,11 +293,6 @@ int main(void){
     while (!editor.should_quit){
         photon_ui_clear();
         editor.first_buf->draw(&editor.api, editor.first_buf);
-
-        char buf[16] = {0};
-        sprintf(buf, "%d", counter++);
-        photon_draw_str(&editor, 23, 0, buf);
-
         photon_extension_t *it = editor.first_ext;
         while (it){
             if (it->pre_frame){
@@ -281,6 +309,7 @@ int main(void){
             photon_ui_snapshot(nameFront, nameBack);
             capture = 0;
         })
+        photon_move_ui_cursor(0, 0);
         photon_ui_refresh();
 
         int key = photon_input_read_key();

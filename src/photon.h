@@ -36,8 +36,8 @@ typedef void (*photon_buf_draw_t)(const photon_api_t *api, photon_buffer_t *self
 struct photon_buffer {
     char type;
     photon_line_t *lines;
-    int num_line;
-    int cap_line;
+    size_t num_line;
+    size_t cap_line;
     char *name;
 
     int scroll;
@@ -49,6 +49,13 @@ struct photon_buffer {
     photon_buffer_t *next;
 
     int y, x, rows, cols;
+
+    struct {
+        size_t line, col; // also acts as the cursor position
+        size_t rel_col;
+        size_t length, cap;
+        char *ptr;
+    } _gap;
 };
 
 typedef struct photon_event {
@@ -107,9 +114,9 @@ struct photon_api {
 #endif
     } buffer;
     struct {
-        void (*draw_str)(photon_editor_t *editor, int y, int x, const char *str);
-        void (*draw_nstr)(photon_editor_t *editor, int y, int x, const char *str, size_t sz);
-        void (*draw_box)(photon_editor_t *editor, int y, int x, int rows, int cols);
+        void (*draw_str)(photon_editor_t *editor, const char *str);
+        void (*draw_nstr)(photon_editor_t *editor, const char *str, size_t sz);
+        void (*draw_box)(photon_editor_t *editor, int rows, int cols);
         void (*tint_line)(photon_editor_t *editor, int y, int x, int cols);
         int width;
         int height;
