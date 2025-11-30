@@ -7,6 +7,7 @@ typedef struct photon_editor photon_editor_t;
 int photon_ui_init(photon_editor_t *editor);
 
 void photon_move_ui_cursor(int y, int x);
+void photon_ui_cursor_loc(int *y, int *x);
 void photon_draw_str(photon_editor_t *editor, const char *str);
 void photon_draw_nstr(photon_editor_t *editor, const char *str, size_t sz);
 void photon_draw_box(photon_editor_t *editor, int rows, int cols);

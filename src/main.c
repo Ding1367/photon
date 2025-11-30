@@ -1,39 +1,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <termios.h>
-#include <unistd.h>
-#include <dlfcn.h>
 #include <dirent.h>
 #include <errno.h>
+#include <dlfcn.h>
 #include <limits.h>
 #include "photon.h"
 #include "photon_debug.h"
+#include "extensions.h"
 #include "input.h"
+#include "buffer.h"
 #include "ui.h"
-
-#define GROUP_SIZE 16
-
-typedef struct alloc_group {
-    void *ptrs[GROUP_SIZE];
-    unsigned char n;
-    unsigned char fail;
-} alloc_group_t;
-
-void *group_alloc(alloc_group_t *group, size_t n, int zero){
-    if (group->n >= GROUP_SIZE) return NULL;
-    void *p = zero ? calloc(n, 1) : malloc(n);
-    if (p != NULL)
-        group->ptrs[group->n++] = p;
-    else
-        group->fail = 1;
-    return p;
-}
-
-void group_free(alloc_group_t *group){
-    for (int i = 0; i < group->n; i++)
-        free(group->ptrs);
-}
 
 static const char *errorMessages[] = {
     NULL,
@@ -41,104 +18,22 @@ static const char *errorMessages[] = {
     "Not enough memory"
 };
 
-#define err_and_ret(edit, err, val) edit->error = err; return val;
+photon_buffer_t *ctx = NULL;
 
-static void photon_draw_buf(const photon_api_t *api, photon_buffer_t *buf){
-    photon_editor_t *editor = api->editor;
-    editor->ui_hints = editor->theme.normal;
-    photon_move_ui_cursor(buf->y, buf->x);
-    photon_draw_box(editor, buf->rows, buf->cols);
-    for (int i = 0; i < buf->num_line; i++){
-        photon_move_ui_cursor(i, 0);
-        photon_draw_str(editor, buf->lines[i].line);
+static int predraw(photon_draw_req_t *req){
+    if (!ctx) return 1;
+    int y = req->y, x = req->x;
+    int p_y = ctx->y, p_x = ctx->x;
+    int rows = ctx->rows, cols = ctx->cols;
+    if (y < p_y || y - p_y >= rows) {
+        if (ctx->y + 1 == rows) return 0;
+        ctx->y++;
+        ctx->x = p_x;
+        return 0;
     }
+    if (x < p_x || x - p_x >= cols) return 0;
+    return 1;
 }
-
-void photon_setup_api(photon_editor_t *editor, photon_extension_t *ext){
-    editor->api.hooks = &ext->hooks;
-    editor->error = ext->errorValue;
-}
-
-int photon_trigger_hook(photon_editor_t *editor, int id, uintptr_t data){
-    photon_event_t event;
-    event.cancelled = 0;
-    event.data = data;
-    photon_extension_t *it = editor->first_ext;
-    while (it){
-        if (it->hooks.hooks[id]){
-            photon_setup_api(editor, it);
-            it->hooks.hooks[id](&editor->api, &event);
-        }
-        it = it->next;
-    }
-    return event.cancelled;
-}
-
-photon_buffer_t *photon_create_buffer(photon_editor_t *editor, const photon_buf_options_t *options){
-    const char *name = options->name;
-    char type = options->type;
-    if (type != BUF_FILE && type != BUF_SCRATCH){
-        err_and_ret(editor, PHOTON_BAD_PARAM, NULL);
-    }
-
-    alloc_group_t ag = {0};
-
-    photon_buffer_t *buf = group_alloc(&ag, sizeof(photon_buffer_t), 0);
-    photon_line_t *lines = group_alloc(&ag, 8 * sizeof(photon_line_t), 1);
-    char *emptyLine = group_alloc(&ag, 16, 0);
-    char *nameCopy = NULL;
-    size_t nameLen = 0;
-    if (name){
-        nameLen = strlen(name);
-        nameCopy = group_alloc(&ag, nameLen + 1, 0);
-    }
-    if (ag.fail){
-        group_free(&ag);
-        err_and_ret(editor, PHOTON_NO_MEM, NULL);
-    }
-    if (nameLen)
-        memcpy(nameCopy, name, nameLen + 1);
-    emptyLine[0] = 0;
-    
-    buf->x = options->x;
-    buf->y = options->y;
-    buf->rows = options->rows;
-    buf->cols = options->cols;
-    buf->next = editor->first_buf;
-    buf->prev = NULL;
-    buf->num_line = 1;
-    buf->cap_line = 8;
-    buf->lines = lines;
-    lines[0].line = emptyLine;
-    lines[0].capacity = 16;
-    buf->type = type;
-    buf->name = nameCopy;
-    buf->draw = photon_draw_buf;
-    buf->userdata = NULL;
-    editor->first_buf = buf;
-    photon_trigger_hook(editor, PHOTON_HOOK_NEWBUF, (uintptr_t)buf);
-    return buf;
-}
-
-void photon_delete_buffer(photon_editor_t *editor, photon_buffer_t *buffer){
-    if (buffer->prev == NULL){
-        editor->first_buf = buffer->next;
-        if (editor->first_buf)
-            editor->first_buf = NULL;
-    } else {
-        buffer->prev = buffer->next;
-        if (buffer->prev)
-            buffer->next->prev = buffer->prev;
-    }
-    for (int i = 0; i < buffer->num_line; i++){
-        free(buffer->lines[i].line);
-    }
-    free(buffer->lines);
-    free(buffer->name);
-    free(buffer);
-}
-
-static int counter;
 
 void photon_handle_keypress(photon_editor_t *editor, int key){
     if (key == PHOTON_INVALID_KEY) return;
@@ -259,6 +154,7 @@ int main(void){
     editor.api.get_error_msg = &photon_editor_error_msg;
     editor.theme.normal = (photon_theme_attr_t){ .bg = 0x1c1c1c, .fg = 0xebdbb2, .style = 0 };
     editor.ui_hints = editor.theme.normal;
+    editor.pre_draw = &predraw;
 
     switch (load_extensions(&editor)){
         case LOAD_FATAL_ERR: return EXIT_FAILURE;
@@ -309,7 +205,6 @@ int main(void){
             photon_ui_snapshot(nameFront, nameBack);
             capture = 0;
         })
-        photon_move_ui_cursor(0, 0);
         photon_ui_refresh();
 
         int key = photon_input_read_key();

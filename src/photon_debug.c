@@ -5,7 +5,7 @@
 
 static FILE *channels[PHOTON_NUM_CHANNELS];
 
-struct {
+static struct {
     const char *file;
     int line;
     const char *func;

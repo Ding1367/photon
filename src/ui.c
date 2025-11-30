@@ -483,6 +483,13 @@ void photon_move_ui_cursor(int y, int x){
     REC_CALLS("cursor moved to %d, %d\n", y, x);
 }
 
+void photon_ui_cursor_loc(int *y, int *x){
+    if (y)
+        *y = c_y;
+    if (x)
+        *x = c_x;
+}
+
 void photon_draw_str(photon_editor_t *editor, const char *str){
     photon_draw_nstr(editor, str, strlen(str));
 }

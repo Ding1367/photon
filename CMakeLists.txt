@@ -11,6 +11,8 @@ add_executable(photon
     src/ui.c src/ui.h
     src/photon_debug.c src/photon_debug.h
     src/input.c src/input.h
+    src/buffer.c src/buffer.h
+    src/extensions.c src/extensions.h
 )
 
 set_target_properties(photon PROPERTIES
